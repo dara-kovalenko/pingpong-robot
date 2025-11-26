@@ -1,350 +1,163 @@
 #include <AFMotor.h>
 
-class MelodyPlayer {
-  private:
-    int pin;
+const int movement_pin = 2;
+const int blocked_pin = A0;
+AF_DCMotor motors[4] = {AF_DCMotor(1), AF_DCMotor(2), AF_DCMotor(3), AF_DCMotor(4)};
 
-  public:
-    MelodyPlayer(int buzzerPin) {
-      pin = buzzerPin;
-    }
+const int wheelSpeed = 120;
+const int wheelSideSpeed = 200;
+const int wheelStop = 0;
+const int motors_numb = 4;
 
-    void init() {
-      pinMode(pin, OUTPUT);
-      digitalWrite(pin, HIGH);
-    }
+const int rampStep = 40;       
+const int rampInterval = 30;    
+unsigned long lastRampTime = 0;
+int currentRampSpeed = 0;
 
-    void playNote(int period, int duration) {
-      long cycles = (long)duration * 1000L / (period * 2);
-      for (long i = 0; i < cycles; i++) {
-        digitalWrite(pin, LOW);
-        delayMicroseconds(period);
-        digitalWrite(pin, HIGH);
-        delayMicroseconds(period);
-      }
-    }
+const unsigned long blockThreshold = 3000;   
+const unsigned long sidewayDuration = 650;  
 
-    void playStartupTune() {
-      playNote(1915, 200); // A
-      playNote(1700, 200); // B
-      playNote(1519, 200); // C#
-      playNote(1432, 400); // D
-    }
+unsigned long blockedStartTime = 0;
+unsigned long sidewayStartTime = 0;
+unsigned long currenttime = 0;
 
-    void honk() {
-      digitalWrite(pin, LOW);
-      delay(160);
-      digitalWrite(pin, HIGH);
-    }
-    
-    void enable() { 
-      digitalWrite(pin, LOW); 
-    }
-    void disable() { 
-      digitalWrite(pin, HIGH); 
-    }
+bool isSidewayActive = false;
+
+enum State {
+  MOVE_FORWARD,
+  MOVE_BACKWARD,
+  BLOCKED,
+  SIDEWAY,
+  RAMP_DOWN 
 };
 
-class RobotCar {
-  private:
-    AF_DCMotor motorFL;
-    AF_DCMotor motorFR;
-    AF_DCMotor motorBL;
-    AF_DCMotor motorBR;
-
-    int headingLedPin;
-    int backLedPin;
-    int lowBattLedPin;
-    int frontSensorPin;
-    int backSensorPin;
-
-    int currentSpeed;
-    MelodyPlayer* buzzer; 
-
-    bool isBlocked(int sensorPin) {
-      return digitalRead(sensorPin) == LOW;
-    }
-
-  public:
-    RobotCar(MelodyPlayer* bz, int hLed, int bLed, int lbLed, int fSens, int bSens) 
-      : motorFL(1), motorBL(2), motorBR(3), motorFR(4), buzzer(bz) {
-      
-      headingLedPin = hLed;
-      backLedPin = bLed;
-      lowBattLedPin = lbLed;
-      frontSensorPin = fSens;
-      backSensorPin = bSens;
-      currentSpeed = 255; 
-    }
-
-    void init() {
-      pinMode(backLedPin, OUTPUT);
-      pinMode(headingLedPin, OUTPUT);
-      pinMode(lowBattLedPin, OUTPUT);
-      pinMode(frontSensorPin, INPUT);
-      pinMode(backSensorPin, INPUT);
-
-      setSpeed(currentSpeed);
-      stop(); 
-    }
-
-    void setSpeed(int speedVal) {
-      currentSpeed = speedVal;
-      motorFL.setSpeed(currentSpeed);
-      motorFR.setSpeed(currentSpeed);
-      motorBL.setSpeed(currentSpeed);
-      motorBR.setSpeed(currentSpeed);
-    }
-
-    void stop() {
-      motorFL.run(RELEASE);
-      motorFR.run(RELEASE);
-      motorBL.run(RELEASE);
-      motorBR.run(RELEASE);
-      digitalWrite(backLedPin, HIGH);
-    }
-
-    void lightsOn() { 
-      digitalWrite(headingLedPin, HIGH); 
-    }
-    void lightsOff() { 
-      digitalWrite(headingLedPin, LOW); 
-    }
-
-    void moveForward() {
-      buzzer->disable(); 
-      
-      if (isBlocked(frontSensorPin)) {
-        stop();
-        return;
-      }
-      
-      // Reset to full speed in case diagonal mode changed it previously
-      setSpeed(currentSpeed); 
-      
-      motorFR.run(FORWARD);
-      motorFL.run(FORWARD);
-      motorBL.run(FORWARD);
-      motorBR.run(FORWARD);
-      digitalWrite(backLedPin, LOW);
-    }
-
-    void moveBackward() {
-      buzzer->disable(); 
-
-      if (isBlocked(backSensorPin)) {
-        stop();
-        return;
-      }
-
-      setSpeed(currentSpeed); 
-
-      motorFR.run(BACKWARD);
-      motorFL.run(BACKWARD);
-      motorBL.run(BACKWARD);
-      motorBR.run(BACKWARD);
-      digitalWrite(backLedPin, HIGH);
-    }
-
-    void turnRight() {
-      setSpeed(currentSpeed);
-      motorFR.run(BACKWARD);
-      motorBR.run(BACKWARD);
-      motorFL.run(FORWARD);
-      motorBL.run(FORWARD);
-      digitalWrite(backLedPin, LOW);
-    }
-
-    void turnLeft() {
-      setSpeed(currentSpeed);
-      motorFR.run(FORWARD);
-      motorBR.run(FORWARD);
-      motorFL.run(BACKWARD);
-      motorBL.run(BACKWARD);
-      digitalWrite(backLedPin, LOW);
-    }
-
-    void moveForwardLeft() {
-      buzzer->disable();
-      if (isBlocked(frontSensorPin)) { 
-        stop(); 
-        return; 
-      }
-
-      motorFR.run(FORWARD);
-      motorFL.run(FORWARD);
-      motorBL.run(FORWARD);
-      motorBR.run(FORWARD);
-
-      // Diagonal Logic: Reduce speed of left motors
-      motorFL.setSpeed(currentSpeed / 4);
-      motorFR.setSpeed(currentSpeed);
-      motorBL.setSpeed(currentSpeed / 4);
-      motorBR.setSpeed(currentSpeed);
-      
-      digitalWrite(backLedPin, LOW);
-    }
-
-    void moveForwardRight() {
-      buzzer->disable();
-      if (isBlocked(frontSensorPin)) { 
-        stop(); 
-        return; 
-      }
-
-      motorFR.run(FORWARD);
-      motorFL.run(FORWARD);
-      motorBL.run(FORWARD);
-      motorBR.run(FORWARD);
-
-      // Diagonal Logic: Reduce speed of right motors
-      motorFL.setSpeed(currentSpeed);
-      motorFR.setSpeed(currentSpeed / 4);
-      motorBL.setSpeed(currentSpeed);
-      motorBR.setSpeed(currentSpeed / 4);
-      
-      digitalWrite(backLedPin, LOW);
-    }
-
-    void moveBackwardLeft() {
-      buzzer->disable();
-      if (isBlocked(backSensorPin)) { 
-        stop(); 
-        return; 
-      }
-
-      motorFR.run(BACKWARD);
-      motorFL.run(BACKWARD);
-      motorBL.run(BACKWARD);
-      motorBR.run(BACKWARD);
-
-      motorFL.setSpeed(currentSpeed / 4);
-      motorFR.setSpeed(currentSpeed);
-      motorBL.setSpeed(currentSpeed / 4);
-      motorBR.setSpeed(currentSpeed);
-      
-      digitalWrite(backLedPin, HIGH);
-    }
-
-    void moveBackwardRight() {
-      buzzer->disable();
-      if (isBlocked(backSensorPin)) { 
-        stop(); 
-        return; 
-      }
-
-      motorFR.run(BACKWARD);
-      motorFL.run(BACKWARD);
-      motorBL.run(BACKWARD);
-      motorBR.run(BACKWARD);
-
-      motorFL.setSpeed(currentSpeed);
-      motorFR.setSpeed(currentSpeed / 4);
-      motorBL.setSpeed(currentSpeed);
-      motorBR.setSpeed(currentSpeed / 4);
-      
-      digitalWrite(backLedPin, HIGH);
-    }
-};
-
-// ==========================================
-// MAIN SKETCH
-// ==========================================
-
-// Pin Definitions
-const int BUZ_PIN = 2;
-const int HEADING_LED = A5;
-const int BACK_LED = A4;
-const int LOW_BAT_LED = A3;
-const int FRONT_OBSTACLE = A0;
-const int BACK_OBSTACLE = A1;
-
-// Instantiate Objects
-MelodyPlayer speaker(BUZ_PIN);
-RobotCar robot(&speaker, HEADING_LED, BACK_LED, LOW_BAT_LED, FRONT_OBSTACLE, BACK_OBSTACLE);
+State currentState = MOVE_FORWARD;
+State nextState = MOVE_FORWARD; //напрямок який буде після плавної зупинки
 
 void setup() {
-  Serial.begin(9600);
-  
-  // Initialize hardware
-  speaker.init();
-  robot.init(); 
-  
-  // Play startup sound
-  speaker.playStartupTune();
+  pinMode(movement_pin, INPUT);
+  pinMode(blocked_pin, INPUT);
 }
 
 void loop() {
-  while (Serial.available() > 0) {
-    char command = Serial.read();
-    handleCommand(command);
+  bool blocked = digitalRead(blocked_pin);
+  bool movement = digitalRead(movement_pin);
+  currenttime = millis();
+  State desiredState = currentState; 
+  if (blocked) {
+    if (blockedStartTime == 0) blockedStartTime = currenttime;
+
+    if (currenttime - blockedStartTime >= blockThreshold && !isSidewayActive) { //якщо ми в забороненому стані 3 або більше секунди то повертаємо в бік
+      desiredState = SIDEWAY;
+      if (!isSidewayActive) {
+        sidewayStartTime = currenttime;
+        isSidewayActive = true;
+      }
+    } 
+    else if (!isSidewayActive) {
+      desiredState = BLOCKED;
+    }
+  } 
+  else {
+    blockedStartTime = 0;
+    if (isSidewayActive) { //перевіряємо чи завершили ми поворот
+      if (currenttime - sidewayStartTime >= sidewayDuration) {
+        isSidewayActive = false;
+        desiredState = (movement ? MOVE_FORWARD : MOVE_BACKWARD);
+      } 
+      else {
+        desiredState = SIDEWAY;
+      }
+    } 
+    else {
+      desiredState = (movement ? MOVE_FORWARD : MOVE_BACKWARD);
+    }
+  }
+
+  if (currentState != RAMP_DOWN) { 
+    bool isSwitchingDirection = (currentState == MOVE_FORWARD && desiredState == MOVE_BACKWARD) || (currentState == MOVE_BACKWARD && desiredState == MOVE_FORWARD); //перевіряємо чи є зміна стану
+
+    if (isSwitchingDirection) {
+      currentState = RAMP_DOWN;
+      nextState = desiredState;     //записужмо куди ми хочемо поїхати
+      currentRampSpeed = wheelSpeed;
+      lastRampTime = currenttime;
+    } 
+    else {
+      currentState = desiredState;
+    }
+  }
+
+  switch (currentState) {
+    case BLOCKED:
+      Blocked();
+      break;
+
+    case MOVE_FORWARD:
+      Forward();
+      break;
+
+    case MOVE_BACKWARD:
+      Backward();
+      break;
+
+    case SIDEWAY:
+      Sideways();
+      break;
+
+    case RAMP_DOWN:
+      RampDownLogic();
+      break;
   }
 }
 
-void handleCommand(char command) {
-  switch (command) {
-    case 'F': 
-      robot.moveForward(); 
-      break;
+void RampDownLogic() {
+  if (currenttime - lastRampTime >= rampInterval) {
+    lastRampTime = currenttime; 
+    currentRampSpeed -= rampStep; //зменшуємо швидкість
 
-    case 'B': 
-      robot.moveBackward(); 
-      break;
+    if (currentRampSpeed > 0) { //поки швидкість більше 0 зменшуємо її
+      for (int i = 0; i < motors_numb; i++) {
+        motors[i].setSpeed(currentRampSpeed);
+      }
+    } 
+    else {
+       for (int i = 0; i < motors_numb; i++) {
+         motors[i].run(RELEASE);
+         motors[i].setSpeed(wheelSpeed); //повертажмось до необхідної швидкості
+       }
+       currentState = nextState; 
+    }
+  }
+}
 
-    case 'R': 
-      robot.turnRight(); 
-      break;
+void Sideways() {
+  for (int i = 0; i < motors_numb; i++){
+    motors[i].setSpeed(wheelSideSpeed);
+  }
+  motors[0].run(FORWARD);
+  motors[1].run(FORWARD);
+  motors[2].run(BACKWARD);
+  motors[3].run(BACKWARD);
+}
 
-    case 'L': 
-      robot.turnLeft(); 
-      break;
+void Blocked() {
+  for (int i = 0; i < motors_numb; i++) {
+    motors[i].setSpeed(wheelStop);
+    motors[i].run(RELEASE);
+  }
+}
 
-    case 'G': 
-      robot.moveForwardLeft(); 
-      break;
+void Forward() {
+  for (int i = 0; i < motors_numb; i++) {
+    motors[i].setSpeed(wheelSpeed);
+    motors[i].run(FORWARD);
+  }
+}
 
-    case 'H': 
-      robot.moveForwardRight(); 
-      break;
-
-    case 'I': 
-      robot.moveBackwardLeft(); 
-      break;
-
-    case 'J': 
-      robot.moveBackwardRight(); 
-      break;
-
-    case 'S': 
-      robot.stop(); 
-      break;
-
-    case 'Y': 
-      speaker.honk(); 
-      break;
-
-    case 'U': 
-      robot.lightsOn(); 
-      break;
-
-    case 'u': 
-      robot.lightsOff(); 
-      break;
-
-    case '1': 
-      robot.setSpeed(65); 
-      break;
-
-    case '2': 
-      robot.setSpeed(130); 
-      break;
-
-    case '3': 
-      robot.setSpeed(195); 
-      break;
-
-    case '4': 
-      robot.setSpeed(255); 
-      break;
+void Backward() {
+  for (int i = 0; i < motors_numb; i++) {
+    motors[i].setSpeed(wheelSpeed);
+    motors[i].run(BACKWARD);
   }
 }
